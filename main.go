@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -48,30 +49,55 @@ var (
 const delimiter = "??><??"
 
 func main() {
-	str := make([]string, 0)
-	loadJSON(str, &rs)
+	// loadJSON(str, &rs)
 
-	// handler := http.NewServeMux()
-	// handler.HandleFunc("/", search)
-	// err := http.ListenAndServe(":8080", handler)
-	// checkErr(err)
+	handler := http.NewServeMux()
+	handler.HandleFunc("/", search)
+	err := http.ListenAndServe(":8080", handler)
+	checkErr(err)
+	defer database.Close()
 }
 
 func search(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query()["search"]
-	s := ""
-	for _, item := range key {
-		s += item + " AND "
+	var dbErr error
+	database, dbErr = sql.Open("sqlite3", "./receipes.db")
+	checkErr(dbErr)
+	keys, good := r.URL.Query()["q"]
+	if !good || len(keys[0]) < 1 {
+		fmt.Println("Url is missing a search query")
+		return
 	}
-	if key == nil || len(key[0]) < 1 {
-		rows, err := database.Query("SELECT name, directions, ingredients, link FROM receipes WHERE name " + s)
-		checkErr(err)
+
+	s := ""
+
+	if len(keys) > 1 {
+		for _, item := range keys {
+			s += item + " OR "
+		}
+	} else {
+		s = keys[0]
+	}
+
+	fmt.Println("S is :", strings.ToLower(s))
+	if keys != nil || len(keys) > 1 {
+		query := "SELECT id, name, directions, ingredients, url FROM receipes WHERE name LIKE '%" + strings.ToLower(s) + "%';"
+		var id int
 		var name string
 		var direct string
 		var ing string
-		var link string
+		var url string
+		rows, err := database.Query(query, s)
+		fmt.Println("Rows = ", rows.Next())
+		checkErr(err)
+		if rows == nil {
+			fmt.Println("Rows is nil", err)
+			return
+		}
 		for rows.Next() {
-			rows.Scan(&name, &direct, &ing, &link)
+			rows.Scan(&id, &name, &direct, &ing, &url)
+			if name != "" {
+				fmt.Println("Name: " + name + " link: " + url)
+			}
 		}
 	}
 }
@@ -81,7 +107,7 @@ func loadJSON(list []string, rs *Recipes) {
 	checkErr(err)
 	statement, err := database.Prepare("CREATE TABLE IF NOT EXISTS receipes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, directions TEXT, ingredients TEXT, url TEXT)")
 	checkErr(err)
-	statement.Exec()
+	// statement.Exec()
 	myr := "/Users/brianmarx/Desktop/Cobo/DataSets/MyRecipesDataSet-min.json"
 	food := "/Users/brianmarx/Desktop/Cobo/DataSets/food9858dataSet-min.json"
 	epi := "/Users/brianmarx/Desktop/Cobo/DataSets/epiDataSetDirectionsFixed-min.json"
@@ -103,11 +129,8 @@ func loadJSON(list []string, rs *Recipes) {
 
 			statement, err = database.Prepare("INSERT INTO receipes (name, directions, ingredients, url) VALUES (?, ?, ?, ?)")
 			checkErr(err)
-			result, err := statement.Exec(name, dir, ins, link)
+			statement.Exec(name, dir, ins, link)
 			checkErr(err)
-			tni, err := result.LastInsertId()
-			checkErr(err)
-			fmt.Println("Row inserted", tni)
 			statement.Close()
 			fmt.Println("Executed insert for: ", name)
 		}
