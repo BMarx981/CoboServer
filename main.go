@@ -17,6 +17,10 @@ type Recipes struct {
 	List []Recipe `json:"recipes"`
 }
 
+func (r *Recipes) clear() {
+	r.List = nil
+}
+
 //Recipe struct contains all recipe data
 type Recipe struct {
 	Name   string   `json:"name"`
@@ -78,7 +82,6 @@ func search(w http.ResponseWriter, r *http.Request) {
 		s = keys[0]
 	}
 
-	fmt.Println("S is :", strings.ToLower(s))
 	if keys != nil || len(keys) > 1 {
 		query := "SELECT id, name, directions, ingredients, url FROM receipes WHERE name LIKE '%" + strings.ToLower(s) + "%';"
 		var id int
@@ -87,18 +90,31 @@ func search(w http.ResponseWriter, r *http.Request) {
 		var ing string
 		var url string
 		rows, err := database.Query(query, s)
-		fmt.Println("Rows = ", rows.Next())
 		checkErr(err)
 		if rows == nil {
 			fmt.Println("Rows is nil", err)
 			return
 		}
+		var r Recipe
 		for rows.Next() {
 			rows.Scan(&id, &name, &direct, &ing, &url)
-			if name != "" {
-				fmt.Println("Name: " + name + " link: " + url)
+			r.addName(name)
+			r.addLink(url)
+			directions := stringToArr(direct)
+			for _, item := range directions {
+				r.addDirection(item)
 			}
+			ingredients := stringToArr(ing)
+			for _, item := range ingredients {
+				r.addDirection(item)
+			}
+			rs.List = append(rs.List, r)
 		}
+		jData, err := json.Marshal(rs)
+		checkErr(err)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jData)
+		rs.clear()
 	}
 }
 
@@ -143,6 +159,16 @@ func arrToString(list []string) string {
 		str += item + delimiter
 	}
 	return str
+}
+
+func stringToArr(str string) []string {
+	var list []string
+	s := strings.Split(str, delimiter)
+	for _, item := range s {
+		list = append(list, item)
+	}
+	fmt.Println(list)
+	return list
 }
 
 func checkErr(e error) {
