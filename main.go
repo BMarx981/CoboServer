@@ -125,7 +125,6 @@ func search(w http.ResponseWriter, r *http.Request) {
 			r.clear()
 		}
 		jData, err := json.Marshal(rs)
-		fmt.Println("JDATA is", string(jData))
 		checkErr(err, "")
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(jData)
