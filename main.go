@@ -68,8 +68,8 @@ const delimiter = "??><??"
 
 func main() {
 	// loadJSON(&rs)
-	// ma := findImageLinks()
-	ma := map[string]string{"Kohlrabi Pickles With Chile Oil": "https://www.epicurious.com/recipes/food/views/kohlrabi-pickles-with-chile-oil", "Whole-Egg Lemon Buttercream": "https://www.epicurious.com/recipes/food/views/whole-egg-lemon-buttercream-56389523"}
+	ma := findImageLinks()
+	// ma := map[string]string{"Kohlrabi Pickles With Chile Oil": "https://www.epicurious.com/recipes/food/views/kohlrabi-pickles-with-chile-oil", "Whole-Egg Lemon Buttercream": "https://www.epicurious.com/recipes/food/views/whole-egg-lemon-buttercream-56389523"}
 	getImageLinks(ma)
 
 	// handler := http.NewServeMux()
@@ -80,6 +80,7 @@ func main() {
 }
 
 func getImageLinks(dataMap map[string]string) {
+	imageMap := make(map[string]string)
 	database, err := sql.Open("sqlite3", "./recipes.db")
 	checkErr(err, "Open DB err")
 	defer database.Close()
@@ -89,14 +90,11 @@ func getImageLinks(dataMap map[string]string) {
 		checkErr(err, "Response err")
 		doc, err := goquery.NewDocumentFromResponse(resp)
 		checkErr(err, "document err")
-
-		epicurious(*doc, k, v)
-		fmt.Println("Am I here?")
-
+		imageMap[k] = epicurious(*doc, k, v)
 	}
 }
 
-func epicurious(doc goquery.Document, key string, v string) {
+func epicurious(doc goquery.Document, key string, v string) string {
 	str := ""
 	doc.Find("picture[class=photo-wrap]").Find("img").Each(func(i int, nodes *goquery.Selection) {
 		t, b := nodes.Attr("srcset")
@@ -107,6 +105,7 @@ func epicurious(doc goquery.Document, key string, v string) {
 		}
 	})
 	fmt.Println(str)
+	return str
 }
 
 func findImageLinks() map[string]string {
@@ -114,7 +113,7 @@ func findImageLinks() map[string]string {
 	database, err := sql.Open("sqlite3", "./recipes.db")
 	defer database.Close()
 	checkErr(err, "Open DB issue")
-	rows, err := database.Query("SELECT id, name, url FROM recipes LIMIT 2")
+	rows, err := database.Query("SELECT id, name, url FROM recipes LIMIT 20")
 	checkErr(err, "Query issue")
 	for rows.Next() {
 		var id int
