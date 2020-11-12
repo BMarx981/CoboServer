@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/PuerkitoBio/goquery"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -67,12 +68,64 @@ const delimiter = "??><??"
 
 func main() {
 	// loadJSON(&rs)
+	// ma := findImageLinks()
+	ma := map[string]string{"Kohlrabi Pickles With Chile Oil": "https://www.epicurious.com/recipes/food/views/kohlrabi-pickles-with-chile-oil", "Whole-Egg Lemon Buttercream": "https://www.epicurious.com/recipes/food/views/whole-egg-lemon-buttercream-56389523"}
+	getImageLinks(ma)
 
-	handler := http.NewServeMux()
-	handler.HandleFunc("/", search)
-	err := http.ListenAndServe(":8080", handler)
-	checkErr(err, "")
+	// handler := http.NewServeMux()
+	// handler.HandleFunc("/", search)
+	// err := http.ListenAndServe(":8080", handler)
+	// checkErr(err, "")
+	// defer database.Close()
+}
+
+func getImageLinks(dataMap map[string]string) {
+	database, err := sql.Open("sqlite3", "./recipes.db")
+	checkErr(err, "Open DB err")
 	defer database.Close()
+	for k, v := range dataMap {
+		fmt.Println(k)
+		resp, err := http.Get(v)
+		checkErr(err, "Response err")
+		doc, err := goquery.NewDocumentFromResponse(resp)
+		checkErr(err, "document err")
+
+		epicurious(*doc, k, v)
+		fmt.Println("Am I here?")
+
+	}
+}
+
+func epicurious(doc goquery.Document, key string, v string) {
+	str := ""
+	doc.Find("picture[class=photo-wrap]").Find("img").Each(func(i int, nodes *goquery.Selection) {
+		t, b := nodes.Attr("srcset")
+		if b {
+			str = t
+		} else {
+
+		}
+	})
+	fmt.Println(str)
+}
+
+func findImageLinks() map[string]string {
+	dataMap := make(map[string]string)
+	database, err := sql.Open("sqlite3", "./recipes.db")
+	defer database.Close()
+	checkErr(err, "Open DB issue")
+	rows, err := database.Query("SELECT id, name, url FROM recipes LIMIT 2")
+	checkErr(err, "Query issue")
+	for rows.Next() {
+		var id int
+		var name string
+		var url string
+		err := rows.Scan(&id, &name, &url)
+		dataMap[name] = url
+		checkErr(err, "Scan err")
+		// fmt.Println(" name and url: " + strconv.Itoa(id) + " " + name + " " + url)
+	}
+	return dataMap
 }
 
 func search(w http.ResponseWriter, r *http.Request) {
