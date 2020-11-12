@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -70,7 +71,8 @@ func main() {
 	// loadJSON(&rs)
 	ma := findImageLinks()
 	// ma := map[string]string{"Kohlrabi Pickles With Chile Oil": "https://www.epicurious.com/recipes/food/views/kohlrabi-pickles-with-chile-oil", "Whole-Egg Lemon Buttercream": "https://www.epicurious.com/recipes/food/views/whole-egg-lemon-buttercream-56389523"}
-	getImageLinks(ma)
+	imgData := getImageLinks(ma)
+	insertImageIntoDB(imgData)
 
 	// handler := http.NewServeMux()
 	// handler.HandleFunc("/", search)
@@ -79,48 +81,99 @@ func main() {
 	// defer database.Close()
 }
 
-func getImageLinks(dataMap map[string]string) {
-	imageMap := make(map[string]string)
+func insertImageIntoDB(imgData map[int]string) {
 	database, err := sql.Open("sqlite3", "./recipes.db")
 	checkErr(err, "Open DB err")
 	defer database.Close()
+	for k, v := range imgData {
+		statement, err := database.Prepare("UPDATE recipes SET imageurl = " + v + " WHERE id = " + strconv.Itoa(k))
+		checkErr(err, "Prepare issue")
+		statement.Exec()
+	}
+}
+
+func getImageLinks(dataMap map[int]string) map[int]string {
+
+	imageMap := make(map[int]string)
 	for k, v := range dataMap {
-		fmt.Println(k)
+		fmt.Println(k, v)
 		resp, err := http.Get(v)
 		checkErr(err, "Response err")
 		doc, err := goquery.NewDocumentFromResponse(resp)
 		checkErr(err, "document err")
-		imageMap[k] = epicurious(*doc, k, v)
+
+		switch getHost(v) {
+		case "myrecipes.com":
+			imageMap[k] = myRecipes(*doc)
+		case "epicurious.com":
+			imageMap[k] = epicurious(*doc)
+		case "food.com":
+			imageMap[k] = food(*doc)
+		}
+		fmt.Println(imageMap[k])
 	}
+
+	return imageMap
 }
 
-func epicurious(doc goquery.Document, key string, v string) string {
+func food(doc goquery.Document) string {
+	str := ""
+	doc.Find("div[class=recipe-image]").Find("img").Each(func(i int, nodes *goquery.Selection) {
+		t, b := nodes.Attr("src")
+		if b {
+			str = t
+		}
+	})
+	return str
+}
+
+func getHost(val string) string {
+	hosts := []string{"myrecipes.com", "epicurious.com", "food.com"}
+	sw := ""
+	for _, name := range hosts {
+		if strings.Contains(val, name) {
+			sw = name
+		}
+	}
+	return sw
+}
+
+func epicurious(doc goquery.Document) string {
 	str := ""
 	doc.Find("picture[class=photo-wrap]").Find("img").Each(func(i int, nodes *goquery.Selection) {
 		t, b := nodes.Attr("srcset")
 		if b {
 			str = t
-		} else {
-
 		}
 	})
 	fmt.Println(str)
 	return str
 }
 
-func findImageLinks() map[string]string {
-	dataMap := make(map[string]string)
+func myRecipes(doc goquery.Document) string {
+	str := ""
+	doc.Find(".image-container").Find(".component").Each(func(i int, nodes *goquery.Selection) {
+		t, b := nodes.Attr("data-src")
+		if b {
+			str = t
+		}
+	})
+	return str
+}
+
+func findImageLinks() map[int]string {
+	dataMap := make(map[int]string)
 	database, err := sql.Open("sqlite3", "./recipes.db")
 	defer database.Close()
 	checkErr(err, "Open DB issue")
-	rows, err := database.Query("SELECT id, name, url FROM recipes LIMIT 20")
+	rows, err := database.Query("SELECT id, name, url FROM recipes")
 	checkErr(err, "Query issue")
 	for rows.Next() {
 		var id int
 		var name string
 		var url string
 		err := rows.Scan(&id, &name, &url)
-		dataMap[name] = url
+		dataMap[id] = url
 		checkErr(err, "Scan err")
 		// fmt.Println(" name and url: " + strconv.Itoa(id) + " " + name + " " + url)
 	}
@@ -245,3 +298,14 @@ func checkErr(e error, s string) {
 		fmt.Println("Error with: "+s, e)
 	}
 }
+
+// func runOnce() {
+// 	database, err := sql.Open("sqlite3", "./recipes.db")
+// 	checkErr(err, "Open DB err")
+// 	defer database.Close()
+// 	statement, err := database.Prepare("ALTER TABLE recipes ADD COLUMN imageurl TEXT")
+// 	checkErr(err, "alter table issue")
+// 	statement.Exec()
+// 	checkErr(err, "execute alter table issue")
+
+// }
