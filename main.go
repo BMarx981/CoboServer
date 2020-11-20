@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -29,6 +30,7 @@ type Recipe struct {
 	Link   string   `json:"link"`
 	Ingred []string `json:"ingredients"`
 	Direct []string `json:"directions"`
+	Image  string   `json:"imageurl"`
 }
 
 func (rec *Recipe) addDirection(item string) {
@@ -69,8 +71,8 @@ const delimiter = "??><??"
 
 func main() {
 	// loadJSON(&rs)
-	ma := findImageLinks()
-	// ma := map[string]string{"Kohlrabi Pickles With Chile Oil": "https://www.epicurious.com/recipes/food/views/kohlrabi-pickles-with-chile-oil", "Whole-Egg Lemon Buttercream": "https://www.epicurious.com/recipes/food/views/whole-egg-lemon-buttercream-56389523"}
+	ma := findURLLinks()
+	// ma := map[int]string{8090: "https://www.food.com/recipe/the-naughty-things-i-do-for-chicken-tortilla-soup-173513", 5082: "https://www.food.com/recipe/burrito-bake-38947"}
 	imgData := getImageLinks(ma)
 	insertImageIntoDB(imgData)
 
@@ -86,20 +88,45 @@ func insertImageIntoDB(imgData map[int]string) {
 	checkErr(err, "Open DB err")
 	defer database.Close()
 	for k, v := range imgData {
-		statement, err := database.Prepare("UPDATE recipes SET imageurl = " + v + " WHERE id = " + strconv.Itoa(k))
+		statement, err := database.Prepare("UPDATE recipes SET imageurl = \"" + v + "\" WHERE id = " + strconv.Itoa(k))
 		checkErr(err, "Prepare issue")
 		statement.Exec()
 	}
 }
 
-func getImageLinks(dataMap map[int]string) map[int]string {
+func extractFoodImageLink() map[string]string {
+	file, err := os.Open("/Users/brianmarx/Desktop/Cobo/DataSets/foodNamesImageLinks.txt")
+	checkErr(err, "Open file err")
+	s := bufio.NewScanner(file)
+	imgLinkMap := make(map[string]string)
+	for s.Scan() {
+		start := strings.Split(s.Text(), "?:>")
+		name := strings.TrimSpace(strings.TrimPrefix(start[0], "Key: "))
+		imgLink := strings.TrimSpace(strings.TrimPrefix(start[1], " Value: "))
+		if strings.Contains(imgLink, "data:image/gif;base64,") {
+			imgLink = ""
+		}
+		imgLinkMap[name] = imgLink
+	}
+	// for k, v := range imgLinkMap {
+	// 	fmt.Println("Link Map " + k + " Value " + v)
+	// }
 
+	return imgLinkMap
+}
+
+func getImageLinks(dataMap map[int]string) map[int]string {
 	imageMap := make(map[int]string)
+	database, err := sql.Open("sqlite3", "./recipes.db")
+	defer database.Close()
+	checkErr(err, "Open DB issue")
+	foodData := extractFoodImageLink()
 	for k, v := range dataMap {
-		fmt.Println(k, v)
+
 		resp, err := http.Get(v)
 		checkErr(err, "Response err")
-		doc, err := goquery.NewDocumentFromResponse(resp)
+		doc, err := goquery.NewDocumentFromReader(resp.Body)
+
 		checkErr(err, "document err")
 
 		switch getHost(v) {
@@ -108,22 +135,39 @@ func getImageLinks(dataMap map[int]string) map[int]string {
 		case "epicurious.com":
 			imageMap[k] = epicurious(*doc)
 		case "food.com":
-			imageMap[k] = food(*doc)
+			imageMap[k] = food(database, v, foodData)
 		}
-		fmt.Println(imageMap[k])
-	}
 
+	}
 	return imageMap
 }
 
-func food(doc goquery.Document) string {
+func food(database *sql.DB, url string, imgLinks map[string]string) string {
 	str := ""
-	doc.Find("div[class=recipe-image]").Find("img").Each(func(i int, nodes *goquery.Selection) {
-		t, b := nodes.Attr("src")
-		if b {
-			str = t
+
+	rows, err := database.Query("SELECT id, name, url FROM recipes WHERE url = \"" + url + "\"")
+	checkErr(err, "Query error")
+	var id int
+	var name string
+	var urlString string
+	keys := make([]string, 0, len(imgLinks))
+
+	for key := range imgLinks {
+		keys = append(keys, key)
+	}
+
+	for rows.Next() {
+		err := rows.Scan(&id, &name, &urlString)
+		fmt.Println("|" + name + "|")
+		trim := strings.TrimSpace(name)
+		checkErr(err, "Scan Error")
+		for _, k := range keys {
+			if strings.Contains(trim, k) && len(trim) == len(k) {
+				up := imgLinks[k]
+				str = up
+			}
 		}
-	})
+	}
 	return str
 }
 
@@ -141,7 +185,7 @@ func getHost(val string) string {
 func epicurious(doc goquery.Document) string {
 	str := ""
 	doc.Find("picture[class=photo-wrap]").Find("img").Each(func(i int, nodes *goquery.Selection) {
-		t, b := nodes.Attr("srcset")
+		t, b := nodes.Attr("data-src")
 		if b {
 			str = t
 		}
@@ -161,7 +205,7 @@ func myRecipes(doc goquery.Document) string {
 	return str
 }
 
-func findImageLinks() map[int]string {
+func findURLLinks() map[int]string {
 	dataMap := make(map[int]string)
 	database, err := sql.Open("sqlite3", "./recipes.db")
 	defer database.Close()
@@ -307,5 +351,87 @@ func checkErr(e error, s string) {
 // 	checkErr(err, "alter table issue")
 // 	statement.Exec()
 // 	checkErr(err, "execute alter table issue")
-
 // }
+
+// var html = `<div class="recipe-layout__media">
+// 			<div class="recipe-media">
+// 				<!---->
+// 				<div class="recipe-hero">
+// 					<div class="recipe-hero__item">
+// 						<div class="recipe-image theme-gradient">
+// 							<div class="inner-wrapper">
+// 								<img src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_571,h_321/v1/img/recipes/17/35/13/picieHeQV.jpg" class="recipe-image__img" data-src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_571,h_321/v1/img/recipes/17/35/13/picieHeQV.jpg" lazy="loaded">
+// 							</div>
+// 						</div>
+// 					</div>
+// 					<div style="display:none;">
+// 						<!---->
+// 						<!---->
+// 					</div>
+// 				</div>
+// 				<ul class="photo-gallery">
+// 					<li class="photo-gallery__item">
+// 						<div class="photo-gallery__thumbnail active theme-border">
+// 							<div>
+// 								<div class="recipe-image theme-gradient">
+// 									<div class="inner-wrapper">
+// 										<img src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picieHeQV.jpg" class="recipe-image__img" data-src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picieHeQV.jpg" lazy="loaded">
+// 									</div>
+// 								</div>
+// 							</div>
+// 						</div>
+// 						<!---->
+// 					</li>
+// 					<li class="photo-gallery__item">
+// 						<div class="photo-gallery__thumbnail">
+// 							<div>
+// 								<div class="recipe-image theme-gradient">
+// 									<div class="inner-wrapper">
+// 										<img src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picrVbjU5.jpg" class="recipe-image__img" data-src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picrVbjU5.jpg" lazy="loaded">
+// 									</div>
+// 								</div>
+// 							</div>
+// 						</div>
+// 						<!---->
+// 					</li>
+// 					<li class="photo-gallery__item">
+// 						<div class="photo-gallery__thumbnail">
+// 							<div>
+// 								<div class="recipe-image theme-gradient">
+// 									<div class="inner-wrapper">
+// 										<img src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/pichr6JgO.jpg" class="recipe-image__img" data-src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/pichr6JgO.jpg" lazy="loaded">
+// 									</div>
+// 								</div>
+// 							</div>
+// 						</div>
+// 						<!---->
+// 					</li>
+// 					<li class="photo-gallery__item">
+// 						<div class="photo-gallery__thumbnail">
+// 							<div>
+// 								<div class="recipe-image theme-gradient">
+// 									<div class="inner-wrapper">
+// 										<img src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picFm8kHd.jpg" class="recipe-image__img" data-src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picFm8kHd.jpg" lazy="loaded">
+// 									</div>
+// 								</div>
+// 							</div>
+// 						</div>
+// 						<!---->
+// 					</li>
+// 					<li class="photo-gallery__item">
+// 						<div class="photo-gallery__thumbnail">
+// 							<div>
+// 								<div class="recipe-image theme-gradient">
+// 									<div class="inner-wrapper">
+// 										<img src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picNczEkf.jpg" class="recipe-image__img" data-src="https://img.sndimg.com:443/food/image/upload/c_thumb,q_80,w_111,h_62/v1/img/recipes/17/35/13/picNczEkf.jpg" lazy="loaded">
+// 									</div>
+// 								</div>
+// 							</div>
+// 						</div>
+// 						<!---->
+// 					</li>
+// 				</ul>
+// 				<!---->
+// 				<!---->
+// 			</div>
+// 		</div>`
