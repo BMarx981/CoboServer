@@ -71,16 +71,16 @@ const delimiter = "??><??"
 
 func main() {
 	// loadJSON(&rs)
-	ma := findURLLinks()
+	// ma := findURLLinks()
 	// ma := map[int]string{8090: "https://www.food.com/recipe/the-naughty-things-i-do-for-chicken-tortilla-soup-173513", 5082: "https://www.food.com/recipe/burrito-bake-38947"}
-	imgData := getImageLinks(ma)
-	insertImageIntoDB(imgData)
+	// imgData := getImageLinks(ma)
+	// insertImageIntoDB(imgData)
 
-	// handler := http.NewServeMux()
-	// handler.HandleFunc("/", search)
-	// err := http.ListenAndServe(":8080", handler)
-	// checkErr(err, "")
-	// defer database.Close()
+	handler := http.NewServeMux()
+	handler.HandleFunc("/", search)
+	err := http.ListenAndServe(":8080", handler)
+	checkErr(err, "")
+	defer database.Close()
 }
 
 func insertImageIntoDB(imgData map[int]string) {
@@ -245,12 +245,13 @@ func search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if keys != nil || len(keys) > 1 {
-		query := "SELECT id, name, directions, ingredients, url FROM recipes WHERE name LIKE '%" + strings.ToLower(s) + "%' LIMIT 10;"
+		query := "SELECT id, name, directions, ingredients, url, image FROM recipes WHERE name LIKE '%" + strings.ToLower(s) + "%' LIMIT 10;"
 		var id int
 		var name string
 		var direct string
 		var ing string
 		var url string
+		var image string
 		rows, err := database.Query(query, s)
 		checkErr(err, "")
 		if rows == nil {
@@ -259,9 +260,10 @@ func search(w http.ResponseWriter, r *http.Request) {
 		}
 		var r Recipe
 		for rows.Next() {
-			rows.Scan(&id, &name, &direct, &ing, &url)
+			rows.Scan(&id, &name, &direct, &ing, &url, &image)
 			r.addName(name)
 			r.addLink(url)
+			r.Image = image
 			directions := stringToArr(direct)
 			for _, item := range directions {
 				r.addDirection(item)
